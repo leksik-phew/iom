@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS likes(user_id INTEGER REFERENCES users(id),post_id IN
 CREATE TABLE IF NOT EXISTS bookmarks(user_id INTEGER REFERENCES users(id),post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,PRIMARY KEY(user_id,post_id));
 CREATE TABLE IF NOT EXISTS comments(id SERIAL PRIMARY KEY,user_id INTEGER REFERENCES users(id),post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,body TEXT NOT NULL,created_at TIMESTAMPTZ DEFAULT NOW());`;
 for(const statement of schema.split(';').filter(s=>s.trim()))await db.query(statement);
+await db.query("ALTER TABLE posts ADD COLUMN IF NOT EXISTS characters JSONB NOT NULL DEFAULT '[]'");
+await db.query("ALTER TABLE posts ADD COLUMN IF NOT EXISTS events JSONB NOT NULL DEFAULT '[]'");
 // Existing identities are removed; old sessions must not bypass verification.
 await db.query(`DO $$ BEGIN CREATE TYPE user_role AS ENUM ('default', 'premium'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
 await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role user_role NOT NULL DEFAULT 'default'");

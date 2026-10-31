@@ -3,7 +3,7 @@ import {createClient} from 'redis';
 import {randomBytes,randomInt,createHash} from 'node:crypto';
 import nodemailer from 'nodemailer';
 import {db} from './db.js';
-const redis=createClient({url:process.env.REDIS_URL||'redis://127.0.0.1:6379',socket:{reconnectStrategy:retries=>Math.min(1000,retries*100)}});
+export const redis=createClient({url:process.env.REDIS_URL||'redis://127.0.0.1:6379',socket:{reconnectStrategy:retries=>Math.min(1000,retries*100)}});
 redis.on('error',()=>{});
 redis.connect().catch(()=>{});
 const hash=value=>createHash('sha256').update(value).digest('hex');

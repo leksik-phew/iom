@@ -41,6 +41,62 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   assert.equal((await request('/posts/1',null,'DELETE')).status,404);
   await request('/logout',{});assert.equal((await request('/posts')).status,401);
   assert.equal((await request('/auth/login',{access_key:secret})).data.role,'premium');
+  // A second account can reply but cannot initiate chats or anonymize posts.
+  const firstCookie=cookie;
+  cookie='';
+  const secondReg=(await request('/auth/register',{email:'second@example.com'})).data;
+  await request('/auth/verify',{challenge:secondReg.challenge,code:secondReg.dev_code});
+  const secondCookie=cookie;
+  const structured=await request('/posts',{body:'История',topic:'Жизнь',characters:['Персонаж А'],events:[{title:'Начало',body:'Персонаж А пришёл.'}]});
+  assert.equal(structured.status,201);assert.equal(structured.data.events[0].title,'Начало');
+  const storyId=structured.data.id;
+  assert.equal((await request('/posts',{body:'История',topic:'Жизнь',events:[{title:'',body:'x'}]})).status,400);
+  assert.equal((await request(`/posts/${storyId}/anonymize`,{})).status,403);
+  assert.equal((await request('/chats',{kind:'post',id})).status,403);
+  await request('/chats/heartbeat',{});
+  cookie=firstCookie;
+  await request('/chats/heartbeat',{});
+  assert.equal((await request(`/posts/${storyId}/anonymize`,{})).status,404);
+  const chat=await request('/chats',{kind:'post',id:storyId});assert.equal(chat.status,201);
+  const chatId=chat.data.id;
+  assert.equal((await request(`/chats/${chatId}/messages`,{body:'Привет'})).status,201);
+  cookie=secondCookie;
+  const inbox=(await request('/chats')).data;assert.equal(inbox[0].messages[0].body,'Привет');assert.equal(inbox[0].messages[0].mine,false);
+  assert.ok(!('participants' in inbox[0]));assert.ok(!('sender' in inbox[0].messages[0]));
+  assert.equal((await request(`/chats/${chatId}/messages`,{body:'Ответ'})).status,201);
+  // A third session cannot discover, read, delete or write into the chat.
+  cookie='';const thirdReg=(await request('/auth/register',{email:'third@example.com'})).data;
+  await request('/auth/verify',{challenge:thirdReg.challenge,code:thirdReg.dev_code});
+  assert.deepEqual((await request('/chats')).data,[]);
+  assert.equal((await request(`/chats/${chatId}/messages`,{body:'Intruder'})).status,404);
+  assert.equal((await request('/chats/'+chatId,null,'DELETE')).status,404);
+  cookie=secondCookie;
+  await request(`/posts/${storyId}/comments`,{body:'Ещё мнение'});
+  const targetComment=(await request(`/posts/${storyId}/comments`)).data[0];
+  await request('/chats/end',{});
+  assert.equal(await redis.exists('iom:chat:'+chatId),0);
+  await request('/chats/heartbeat',{});
+  cookie=firstCookie;
+  const commentChat=await request('/chats',{kind:'comment',id:targetComment.id});assert.equal(commentChat.status,201);
+  const liveKeys=[];for await(const batch of redis.scanIterator({MATCH:'iom:presence:*'}))liveKeys.push(...batch);
+  for(const key of liveKeys)await redis.del(key);
+  await pause(5500);
+  assert.equal(await redis.exists('iom:chat:'+commentChat.data.id),0);
+  await request('/chats/heartbeat',{});
+  cookie=secondCookie;await request('/chats/heartbeat',{});
+  cookie=firstCookie;const finalChat=await request('/chats',{kind:'post',id:storyId});assert.equal(finalChat.status,201);
+  cookie=secondCookie;await request('/logout',{});
+  assert.equal(await redis.exists('iom:chat:'+finalChat.data.id),0);
+  assert.equal(await redis.exists('iom:chat:'+chatId),0);
+  cookie=firstCookie;assert.deepEqual((await request('/chats')).data,[]);
+  // Anonymization preserves the story but removes ownership and contactability.
+  const ownStory=(await request('/posts',{body:'Обезличенная история',topic:'Город',characters:['Сосед'],events:[]})).data;
+  assert.equal((await request(`/posts/${ownStory.id}/anonymize`,{})).status,200);
+  const publicStory=(await request('/posts')).data.find(p=>p.id===ownStory.id);
+  assert.equal(publicStory.anonymized,true);assert.equal(publicStory.is_own,null);
+  assert.ok(!(await request('/posts?view=profile')).data.some(p=>p.id===ownStory.id));
+  assert.equal((await request('/posts/'+ownStory.id,null,'DELETE')).status,404);
+  assert.equal((await request('/chats',{kind:'post',id:ownStory.id})).status,404);
   assert.equal((await request('/posts/'+id,null,'DELETE')).status,200);
  }catch(e){console.error(logs);throw e}finally{
   if(child.exitCode===null){child.kill();await new Promise(r=>child.once('exit',r));}
