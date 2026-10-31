@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {db,init} from './db.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 await init();
-const app=express();app.disable('x-powered-by');app.use(express.json({limit:'64kb'}));
+const app=express();if(process.env.TRUST_PROXY==='1')app.set('trust proxy',1);app.disable('x-powered-by');app.use(express.json({limit:'64kb'}));
 const run=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 app.use('/api',run(async(req,res,next)=>{if(!['GET','HEAD'].includes(req.method)&&req.headers.origin&&req.headers.origin!==`${req.protocol}://${req.headers.host}`)return res.status(403).json({error:'Недопустимый источник запроса'});const token=req.headers.cookie?.split('; ').find(x=>x.startsWith('iom_session='))?.slice(12);req.sessionToken=token;if(token)req.user=(await db.query('SELECT u.id,u.role,u.user_verified FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=$1 AND s.expires>NOW() AND u.user_verified=TRUE',[token])).rows[0];next();}));
 const auth=(req,res,next)=>req.user?next():res.status(401).json({error:'Войдите, чтобы продолжить'});

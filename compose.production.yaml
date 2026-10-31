@@ -3,9 +3,11 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - '3010:3000'
+      - '127.0.0.1:3010:3000'
     env_file: .env.production
     environment:
+      TRUST_PROXY: "1"
+      COOKIE_SECURE: "true"
       NODE_ENV: production
       PORT: 3000
       REDIS_URL: redis://redis:6379

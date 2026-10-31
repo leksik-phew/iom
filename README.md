@@ -62,12 +62,12 @@ npm start
 
 ## Развёртывание на сервере
 
-Production-конфигурация: `Dockerfile` и `compose.production.yaml`. Приложение слушает порт **3010** хоста; PostgreSQL и Redis доступны только внутри Docker-сети. Контейнеры автоматически запускаются после перезагрузки; данные PostgreSQL сохраняются в Docker volume.
+Production-конфигурация: `Dockerfile` и `compose.production.yaml`. Приложение доступно через HTTPS на **3443**, внутренний порт **3010** привязан только к localhost; PostgreSQL и Redis доступны только внутри Docker-сети. Контейнеры автоматически запускаются после перезагрузки; данные PostgreSQL сохраняются в Docker volume.
 
 В каталоге приложения нужны два файла, исключённых из Git, с правами 600:
 
 - `.env.database`: `POSTGRES_USER=iom`, `POSTGRES_DB=iom`, `POSTGRES_PASSWORD` — случайный пароль.
-- `.env.production`: `DATABASE_URL=postgres://iom:ПАРОЛЬ@db:5432/iom`, `COOKIE_SECURE=false` для HTTP, а также SMTP-настройки. При добавлении HTTPS переключить `COOKIE_SECURE=true`.
+- `.env.production`: `DATABASE_URL=postgres://iom:ПАРОЛЬ@db:5432/iom`, SMTP-настройки. Production Compose принудительно задаёт `COOKIE_SECURE=true` и `TRUST_PROXY=1`.
 
 ```sh
 cd /opt/iom
@@ -77,3 +77,16 @@ docker compose -f compose.production.yaml logs --tail=50 app
 ```
 
 Исходники на сервере находятся в `/opt/iom`. Секреты не включаются в Docker-образ или Git. Локальная база данных при развёртывании не переносится. Резервные копии PostgreSQL нужно настраивать отдельно.
+
+### HTTPS
+
+Адрес: https://213.176.67.222:3443/ . Порт 443 занят существующим VPN и не изменялся. nginx проксирует запросы на 127.0.0.1:3010; порт 80 для этого IP обслуживает ACME и перенаправляет на HTTPS. Прямой HTTP-доступ на 3010 извне закрыт.
+
+Сертификат Let's Encrypt на IP хранится в `/etc/letsencrypt-iom/live/iom-ip/`. Конфигурация nginx — `deploy/nginx-iom.conf`. Certbot 5.4 работает в отдельном контейнере; системный Certbot для других сайтов не изменён. `iom-cert-renew.timer` проверяет продление дважды в день, после успешной проверки nginx перечитывает сертификат. Unit-файлы находятся в `deploy/`.
+
+```sh
+systemctl list-timers iom-cert-renew.timer
+systemctl status iom-cert-renew.service
+```
+
+`TRUST_PROXY=1` безопасен только при закрытом от внешних подключений backend и одном доверенном reverse proxy, как в этой конфигурации.

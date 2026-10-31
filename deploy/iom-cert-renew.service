@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew IOM IP TLS certificate and reload nginx
+After=docker.service network-online.target
+Requires=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm -v /etc/letsencrypt-iom:/etc/letsencrypt -v /var/www/iom-acme:/var/www/iom-acme certbot/certbot:v5.4.0 renew --non-interactive --quiet --no-random-sleep-on-renew
+ExecStartPost=/usr/sbin/nginx -t
+ExecStartPost=/usr/bin/systemctl reload nginx
