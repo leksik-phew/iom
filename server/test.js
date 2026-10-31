@@ -45,7 +45,8 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   const firstCookie=cookie;
   cookie='';
   const secondReg=(await request('/auth/register',{email:'second@example.com'})).data;
-  await request('/auth/verify',{challenge:secondReg.challenge,code:secondReg.dev_code});
+  const secondVerified=await request('/auth/verify',{challenge:secondReg.challenge,code:secondReg.dev_code});
+  const secondSecret=secondVerified.data.access_key;
   const secondCookie=cookie;
   const structured=await request('/posts',{body:'История',topic:'Жизнь',characters:['Персонаж А'],events:[{title:'Начало',body:'Персонаж А пришёл.'}]});
   assert.equal(structured.status,201);assert.equal(structured.data.events[0].title,'Начало');
@@ -85,10 +86,23 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   await request('/chats/heartbeat',{});
   cookie=secondCookie;await request('/chats/heartbeat',{});
   cookie=firstCookie;const finalChat=await request('/chats',{kind:'post',id:storyId});assert.equal(finalChat.status,201);
-  cookie=secondCookie;await request('/logout',{});
+  cookie=secondCookie;await request('/chats');await request('/logout',{});
   assert.equal(await redis.exists('iom:chat:'+finalChat.data.id),0);
   assert.equal(await redis.exists('iom:chat:'+chatId),0);
   cookie=firstCookie;assert.deepEqual((await request('/chats')).data,[]);
+  // Recipient has logged out: a pending chat still accepts messages.
+  const offlineChat=await request('/chats',{kind:'post',id:storyId});assert.equal(offlineChat.status,201);
+  const pending=(await request('/chats')).data.find(c=>c.id===offlineChat.data.id);assert.equal(pending.waiting,true);
+  assert.equal((await request(`/chats/${offlineChat.data.id}/messages`,{body:'Сообщение офлайн'})).status,201);
+  assert.equal((await request('/chats',{kind:'post',id:storyId})).data.id,offlineChat.data.id);
+  cookie='';await request('/auth/login',{access_key:secondSecret});
+  const delivered=(await request('/chats')).data.find(c=>c.id===offlineChat.data.id);
+  assert.equal(delivered.messages[0].body,'Сообщение офлайн');assert.equal(delivered.waiting,false);
+  assert.ok(!('pendingFor' in delivered));
+  assert.equal((await request(`/chats/${offlineChat.data.id}/messages`,{body:'Я вернулся'})).status,201);
+  await request('/logout',{});
+  assert.equal(await redis.exists('iom:chat:'+offlineChat.data.id),0);
+  cookie=firstCookie;
   // Anonymization preserves the story but removes ownership and contactability.
   const ownStory=(await request('/posts',{body:'Обезличенная история',topic:'Город',characters:['Сосед'],events:[]})).data;
   assert.equal((await request(`/posts/${ownStory.id}/anonymize`,{})).status,200);

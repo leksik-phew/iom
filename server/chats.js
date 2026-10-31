@@ -20,17 +20,31 @@ if(req.user.role!=='premium')return res.status(403).json({error:'Начинат�
 const {kind,id}=req.body;if(!['post','comment'].includes(kind)||!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Выберите публикацию или комментарий'});
 const target=(await db.query(`SELECT user_id FROM ${kind==='post'?'posts':'comments'} WHERE id=$1`,[id])).rows[0];
 if(!target?.user_id||target.user_id===req.user.id)return res.status(404).json({error:'Чат недоступен'});
-const sessions=(await db.query('SELECT token,expires FROM sessions WHERE user_id=$1 AND expires>NOW() ORDER BY expires DESC',[target.user_id])).rows;
-let recipient;for(const session of sessions)if(await redis.exists(presence(session.token))){recipient=session;break}
-if(!recipient)return res.status(409).json({error:'Пользователь сейчас не в сети. Временный чат доступен, когда оба участника онлайн.'});
 const own=(await db.query('SELECT expires FROM sessions WHERE token=$1 AND expires>NOW()',[req.sessionToken])).rows[0];if(!own)return res.sendStatus(401);
-const participants=[hash(req.sessionToken),hash(recipient.token)];
+const participants=[hash(req.sessionToken)];
+const pendingFor=hash('recipient:'+target.user_id);
 await redis.set(presence(req.sessionToken),'1',{EX:45});
-for(const key of await keys()){const raw=await redis.get(key);if(raw){const c=JSON.parse(raw);if(c.participants.includes(participants[0])&&c.participants.includes(participants[1])&&await alive(c))return res.json({id:c.id,number:c.number})}}
-const chatId=randomBytes(16).toString('hex');const number=await redis.incr('iom:chat-counter');const expires=Math.min(new Date(own.expires).getTime(),new Date(recipient.expires).getTime(),Date.now()+86400000);
-await redis.set(prefix+chatId,JSON.stringify({id:chatId,number,participants,expires,messages:[]}),{PX:Math.max(1,Math.min(45000,expires-Date.now()))});res.status(201).json({id:chatId,number});
+for(const key of await keys()){const raw=await redis.get(key);if(raw){const c=JSON.parse(raw);if(c.participants.includes(participants[0])&&c.pendingFor===pendingFor&&await alive(c))return res.json({id:c.id,number:c.number})}}
+const chatId=randomBytes(16).toString('hex');const number=await redis.incr('iom:chat-counter');const expires=Math.min(new Date(own.expires).getTime(),Date.now()+86400000);
+await redis.set(prefix+chatId,JSON.stringify({id:chatId,number,participants,pendingFor,expires,messages:[]}),{PX:Math.max(1,Math.min(45000,expires-Date.now()))});res.status(201).json({id:chatId,number});
 }));
-chatRouter.get('/',run(async(req,res)=>{const result=[];const participant=hash(req.sessionToken);for(const key of await keys()){const raw=await redis.get(key);if(raw){const c=JSON.parse(raw);if(c.participants.includes(participant)&&await alive(c))result.push({id:c.id,number:c.number,messages:c.messages.map(m=>({body:m.body,created_at:m.created_at,mine:m.sender===participant}))})}}res.json(result.sort((a,b)=>b.number-a.number))}));
+chatRouter.get('/',run(async(req,res)=>{
+const result=[];const participant=hash(req.sessionToken);const recipient=hash('recipient:'+req.user.id);
+for(const key of await keys()){
+let raw=await redis.get(key);if(!raw)continue;
+let c=JSON.parse(raw);
+if(c.pendingFor===recipient&&await alive(c)){
+// Claim only once so parallel tabs cannot attach different recipient sessions.
+await redis.set(presence(req.sessionToken),'1',{EX:45});
+const session=(await db.query('SELECT expires FROM sessions WHERE token=$1 AND expires>NOW()',[req.sessionToken])).rows[0];
+if(!session)continue;
+raw=await redis.eval(`local raw=redis.call('GET',KEYS[1]); if not raw then return '' end; local c=cjson.decode(raw); if c.pendingFor==ARGV[1] then table.insert(c.participants,ARGV[2]); c.pendingFor=nil; c.expires=math.min(c.expires,tonumber(ARGV[3])); redis.call('SET',KEYS[1],cjson.encode(c),'KEEPTTL'); return cjson.encode(c) end; return raw`,{keys:[key],arguments:[recipient,participant,String(new Date(session.expires).getTime())]});
+if(!raw)continue;c=JSON.parse(raw);
+}
+if(c.participants.includes(participant)&&await alive(c))result.push({id:c.id,number:c.number,waiting:!!c.pendingFor,messages:c.messages.map(m=>({body:m.body,created_at:m.created_at,mine:m.sender===participant}))});
+}
+res.json(result.sort((a,b)=>b.number-a.number));
+}));
 chatRouter.post('/:id/messages',run(async(req,res)=>{const {body}=req.body;if(typeof body!=='string'||!body.trim()||body.length>1000)return res.status(400).json({error:'Сообщение: 1–1000 символов'});
 const raw=await redis.get(prefix+req.params.id);const participant=hash(req.sessionToken);if(!raw)return res.status(404).json({error:'Чат завершён'});const chat=JSON.parse(raw);if(!chat.participants.includes(participant)||!await alive(chat))return res.status(404).json({error:'Чат завершён'});
 const result=await redis.eval(`local raw=redis.call('GET',KEYS[1]); if not raw then return 0 end; local c=cjson.decode(raw); if #c.messages>=200 then return 2 end; table.insert(c.messages,cjson.decode(ARGV[1])); redis.call('SET',KEYS[1],cjson.encode(c),'KEEPTTL'); return 1`,{keys:[prefix+req.params.id],arguments:[JSON.stringify({body:body.trim(),sender:participant,created_at:new Date().toISOString()})]});res.status(result===1?201:result===2?400:404).json(result===1?{ok:true}:{error:result===2?'Лимит чата — 200 сообщений':'Чат завершён'});
