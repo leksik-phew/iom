@@ -1,3 +1,4 @@
+import './env.js';
 import express from 'express';
 import {chatRouter, endChats} from './chats.js';
 import {randomBytes} from 'node:crypto';

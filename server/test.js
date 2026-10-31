@@ -11,7 +11,7 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
  const dir=await mkdtemp(path.join(tmpdir(),'iom-test-'));
  const redisProcess=spawn('redis-server',['--port','6398','--bind','127.0.0.1','--save','','--appendonly','no'],{stdio:'ignore'});
  const redis=createClient({url:'redis://127.0.0.1:6398'});redis.on('error',()=>{});await redis.connect();
- const child=spawn(process.execPath,['server/index.js'],{env:{...process.env,PORT:'3199',REDIS_URL:'redis://127.0.0.1:6398',DATA_DIR:dir,NODE_ENV:'development',SMTP_HOST:''},stdio:'pipe'});
+ const child=spawn(process.execPath,['server/index.js'],{env:{...process.env,DATABASE_URL:'',PORT:'3199',REDIS_URL:'redis://127.0.0.1:6398',DATA_DIR:dir,NODE_ENV:'development',SMTP_HOST:''},stdio:'pipe'});
  let cookie='',logs='';child.stdout.on('data',x=>logs+=x);child.stderr.on('data',x=>logs+=x);
  async function request(url,body,method){const r=await fetch('http://localhost:3199/api'+url,{method:method||(body?'POST':'GET'),headers:{'Content-Type':'application/json',cookie},body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return {status:r.status,data:await r.json()}}
  const privateFields=['user_id','handle','color','email','access_hash','password'];

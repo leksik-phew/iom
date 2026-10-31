@@ -20,7 +20,7 @@ docker compose up -d
 DATABASE_URL=postgres://iom:iom_local_password@localhost:5432/iom npm run dev
 ```
 
-Локальный Redis и Docker Redis не запускайте одновременно на одном порту. Для SMTP задайте SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, при необходимости SMTP_SECURE=true. Образец — `.env.example`. Файл `.env` автоматически не загружается; переменные передаются через окружение. Для HTTPS: COOKIE_SECURE=true.
+Локальный Redis и Docker Redis не запускайте одновременно на одном порту. Для SMTP задайте SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, при необходимости SMTP_SECURE=true. Образец — `.env.example`. Файл `.env` из корня проекта автоматически загружается при `npm run dev`, `npm start` и `node server/index.js`, до подключения БД, Redis и SMTP. Переменные, уже заданные в окружении, имеют приоритет. Без `.env` сервер использует окружение и значения по умолчанию. После изменения `.env` перезапустите сервер. Требуется Node.js 20.12+ (рекомендуется установленная версия 20.20.2 или новее). Для HTTPS: COOKIE_SECURE=true.
 
 ## Регистрация и анонимность
 
