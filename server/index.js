@@ -1,0 +1,32 @@
+import express from 'express';
+import {randomBytes} from 'node:crypto';
+import bcrypt from 'bcryptjs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {db,init} from './db.js';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+await init();
+const app=express();app.disable('x-powered-by');app.use(express.json({limit:'16kb'}));
+const run=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+app.use('/api',run(async(req,res,next)=>{if(!['GET','HEAD'].includes(req.method)&&req.headers.origin&&req.headers.origin!==`${req.protocol}://${req.headers.host}`)return res.status(403).json({error:'Недопустимый источник запроса'});const token=req.headers.cookie?.split('; ').find(x=>x.startsWith('iom_session='))?.slice(12);if(token)req.user=(await db.query('SELECT u.id,u.name,u.handle,u.color FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=$1 AND s.expires>NOW()',[token])).rows[0];next();}));
+const auth=(req,res,next)=>req.user?next():res.status(401).json({error:'Войдите, чтобы продолжить'});
+const attempts=new Map();
+app.post('/api/auth/:mode',run(async(req,res)=>{
+const key=req.ip;const now=Date.now();let a=attempts.get(key);if(!a||a.until<now){a={count:0,until:now+60000};attempts.set(key,a)}if(++a.count>20)return res.status(429).json({error:'Слишком много попыток. Попробуйте через минуту.'});
+const {name,handle,password}=req.body;if(typeof handle!=='string'||! /^[a-z0-9_]{3,24}$/.test(handle)||typeof password!=='string'||password.length<8||password.length>72)return res.status(400).json({error:'Ник: 3–24 латинских символа, цифры или _. Пароль: 8–72 символа.'});
+let user;if(req.params.mode==='register'){if(typeof name!=='string'||!name.trim()||name.length>40)return res.status(400).json({error:'Введите имя (до 40 символов)'});try{user=(await db.query('INSERT INTO users(name,handle,password) VALUES($1,$2,$3) RETURNING id,name,handle,color',[name.trim(),handle,await bcrypt.hash(password,10)])).rows[0]}catch(e){if(e.code==='23505')return res.status(409).json({error:'Этот ник уже занят'});throw e}}else if(req.params.mode==='login'){user=(await db.query('SELECT * FROM users WHERE handle=$1',[handle])).rows[0];if(!user||!await bcrypt.compare(password,user.password))return res.status(401).json({error:'Неверный ник или пароль'})}else return res.sendStatus(404);
+const token=randomBytes(32).toString('hex');await db.query("INSERT INTO sessions(token,user_id,expires) VALUES($1,$2,NOW()+INTERVAL '30 days')",[token,user.id]);res.cookie('iom_session',token,{httpOnly:true,sameSite:'lax',secure:process.env.COOKIE_SECURE==='true',maxAge:2592000000});delete user.password;res.json(user);
+}));
+app.get('/api/me',(req,res)=>res.json(req.user||null));
+app.post('/api/logout',run(async(req,res)=>{const token=req.headers.cookie?.split('; ').find(x=>x.startsWith('iom_session='))?.slice(12);if(token)await db.query('DELETE FROM sessions WHERE token=$1',[token]);res.clearCookie('iom_session');res.json({ok:true})}));
+app.get('/api/posts',run(async(req,res)=>{const uid=req.user?.id||0;const {q='',topic='',view='',sort=''}=req.query;const result=await db.query(`SELECT p.*,u.name,u.handle,u.color,(SELECT COUNT(*)::int FROM likes WHERE post_id=p.id) AS likes,(SELECT COUNT(*)::int FROM comments WHERE post_id=p.id) AS comments,EXISTS(SELECT 1 FROM likes WHERE post_id=p.id AND user_id=$1) AS liked,EXISTS(SELECT 1 FROM bookmarks WHERE post_id=p.id AND user_id=$1) AS saved FROM posts p JOIN users u ON u.id=p.user_id WHERE (p.body ILIKE $2 OR u.name ILIKE $2) AND ($3='' OR p.topic=$3) AND ($4!='saved' OR EXISTS(SELECT 1 FROM bookmarks WHERE post_id=p.id AND user_id=$1)) AND ($4!='profile' OR p.user_id=$1) ORDER BY ${sort==='popular'?'likes DESC,':''} p.created_at DESC,p.id DESC LIMIT 100`,[uid,`%${String(q).slice(0,100)}%`,topic,view]);res.json(result.rows)}));
+const validBody=b=>typeof b==='string'&&b.trim().length>0&&b.length<=1000;
+app.post('/api/posts',auth,run(async(req,res)=>{const {body,topic}=req.body;if(!validBody(body)||!['Жизнь','Город','Культура','Работа','Отношения'].includes(topic))return res.status(400).json({error:'Текст от 1 до 1000 символов и тема обязательны'});res.status(201).json((await db.query('INSERT INTO posts(user_id,body,topic) VALUES($1,$2,$3) RETURNING *',[req.user.id,body.trim(),topic])).rows[0])}));
+for(const [route,table] of [['like','likes'],['save','bookmarks']])app.post(`/api/posts/:id/${route}`,auth,run(async(req,res)=>{if(!(await db.query('SELECT id FROM posts WHERE id=$1',[req.params.id])).rows.length)return res.sendStatus(404);if(req.body.active===true)await db.query(`INSERT INTO ${table}(user_id,post_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,[req.user.id,req.params.id]);else await db.query(`DELETE FROM ${table} WHERE user_id=$1 AND post_id=$2`,[req.user.id,req.params.id]);res.json({ok:true})}));
+app.get('/api/posts/:id/comments',run(async(req,res)=>res.json((await db.query('SELECT c.*,u.name,u.handle,u.color FROM comments c JOIN users u ON c.user_id=u.id WHERE post_id=$1 ORDER BY c.created_at',[req.params.id])).rows)));
+app.post('/api/posts/:id/comments',auth,run(async(req,res)=>{if(!validBody(req.body.body))return res.status(400).json({error:'Комментарий: 1–1000 символов'});await db.query('INSERT INTO comments(user_id,post_id,body) VALUES($1,$2,$3)',[req.user.id,req.params.id,req.body.body.trim()]);res.status(201).json({ok:true})}));
+app.delete('/api/posts/:id',auth,run(async(req,res)=>{const r=await db.query('DELETE FROM posts WHERE id=$1 AND user_id=$2 RETURNING id',[req.params.id,req.user.id]);res.status(r.rows.length?200:404).json({ok:!!r.rows.length})}));
+app.use('/api',(req,res)=>res.status(404).json({error:'Не найдено'}));
+app.use((err,req,res,next)=>{console.error(err.message);res.status(500).json({error:'Не удалось выполнить запрос. Попробуйте ещё раз.'})});
+if(process.env.NODE_ENV==='production'){app.use(express.static(path.join(root,'dist')));app.get('*',(req,res)=>res.sendFile(path.join(root,'dist/index.html')))}else{const {createServer}=await import('vite');const vite=await createServer({configFile:path.join(root,'vite.config.js'),server:{middlewareMode:true},appType:'spa'});app.use(vite.middlewares)}
+app.listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('ЙОМ: http://localhost:'+(process.env.PORT||3000)));
