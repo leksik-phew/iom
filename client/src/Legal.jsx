@@ -1,4 +1,4 @@
-import React from 'react';
+import React from 'react';import {Mark} from './Features.jsx';
 // Bump together with termsVersion in server/auth.js when the documents change.
 export const LEGAL_DATE='1 ноября 2026 г.';
 // Keep in sync with SUPPORT_EMAIL on the server.
@@ -56,4 +56,4 @@ consent:{title:'Согласие на обработку персональны�
 ['Контакты',contacts]]}};
 export const legalPaths={'/privacy':'privacy','/rules':'rules','/consent':'consent'};
 function Section([heading,items]){return <section key={heading}>{heading&&<h2>{heading}</h2>}{items.map((item,i)=>typeof item==='string'?<p key={i}>{item}</p>:<ul key={i}>{item.list.map((x,j)=><li key={j}>{x}</li>)}</ul>)}</section>}
-export function LegalPage({doc}){const d=docs[doc];return <div className="legal"><a className="logo" href="/">йом<span>✳</span></a><a className="legal-back" href="/">← На главную</a><h1>{d.title}</h1><small>Редакция от {LEGAL_DATE}</small>{d.sections.map(Section)}<div className="legal-links">{Object.entries(legalPaths).filter(([,id])=>id!==doc).map(([href,id])=><a key={id} href={href}>{docs[id].title}</a>)}<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a></div></div>}
+export function LegalPage({doc}){const d=docs[doc];return <div className="legal"><a className="logo" href="/">йом<Mark/></a><a className="legal-back" href="/">← На главную</a><h1>{d.title}</h1><small>Редакция от {LEGAL_DATE}</small>{d.sections.map(Section)}<div className="legal-links">{Object.entries(legalPaths).filter(([,id])=>id!==doc).map(([href,id])=><a key={id} href={href}>{docs[id].title}</a>)}<a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a></div></div>}
