@@ -17,6 +17,8 @@ await db.query(`DO $$ BEGIN CREATE TYPE user_role AS ENUM ('default', 'premium')
 await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role user_role NOT NULL DEFAULT 'default'");
 await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS user_verified BOOLEAN NOT NULL DEFAULT FALSE');
 await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS access_hash TEXT UNIQUE');
+await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMPTZ');
+await db.query('CREATE TABLE IF NOT EXISTS subscriptions(id SERIAL PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,plan TEXT NOT NULL,starts_at TIMESTAMPTZ NOT NULL,ends_at TIMESTAMPTZ NOT NULL,created_at TIMESTAMPTZ DEFAULT NOW())');
 for(const column of ['name','handle','password','color']) await db.query(`ALTER TABLE users DROP COLUMN IF EXISTS ${column}`);
 await db.query('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE user_verified=FALSE)');
 if(!(await db.query('SELECT id FROM users LIMIT 1')).rows.length){
