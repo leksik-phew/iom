@@ -19,7 +19,12 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
  try{
   for(let i=0;i<150;i++){try{await fetch('http://localhost:3199/api/me');break}catch{await pause(100)}}
   assert.equal((await request('/posts')).status,401);
-  const registration=(await request('/auth/register',{email:'anonymous@example.com'})).data;
+  // Registration requires all three documents to be accepted.
+  const accept={privacy:true,rules:true,consent:true};
+  assert.equal((await request('/auth/register',{email:'anonymous@example.com'})).status,400);
+  assert.equal((await request('/auth/register',{email:'anonymous@example.com',accept:{privacy:true,rules:true}})).status,400);
+  assert.equal((await request('/auth/register',{email:'anonymous@example.com',accept:{privacy:true,rules:true,consent:'true'}})).status,400);
+  const registration=(await request('/auth/register',{email:'anonymous@example.com',accept})).data;
   const key='iom:registration:'+registration.challenge;
   assert.equal(JSON.parse(await redis.get(key)).email,'anonymous@example.com');
   assert.ok(await redis.ttl(key)<=600);
@@ -58,7 +63,7 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   // A second account can reply but cannot initiate chats or anonymize posts.
   let firstCookie=cookie;
   cookie='';
-  const secondReg=(await request('/auth/register',{email:'second@example.com'})).data;
+  const secondReg=(await request('/auth/register',{email:'second@example.com',accept})).data;
   const secondVerified=await request('/auth/verify',{challenge:secondReg.challenge,code:secondReg.dev_code});
   const secondSecret=secondVerified.data.access_key;
   let secondCookie=cookie;
@@ -67,6 +72,23 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   const storyId=structured.data.id;
   assert.equal((await request('/posts',{body:'История',topic:'Жизнь',events:[{title:'',body:'x'}]})).status,400);
   assert.equal((await request(`/posts/${storyId}/anonymize`,{})).status,403);
+  // Posts allow 2000 characters; comments keep 1000.
+  assert.equal((await request('/posts',{body:'с'.repeat(2000),topic:'Жизнь'})).status,201);
+  assert.equal((await request('/posts',{body:'с'.repeat(2001),topic:'Жизнь'})).status,400);
+  assert.equal((await request(`/posts/${storyId}/comments`,{body:'с'.repeat(1001)})).status,400);
+  // Reports and support messages go to the support mailbox tagged with the sender's internal id (seed users are 1-4).
+  assert.ok((await request('/support/categories')).data.some(c=>c.id==='identity'));
+  assert.equal((await request('/support/report',{kind:'post',id,category:'identity',comment:'Узнаётся человек'})).status,201);
+  assert.equal((await request('/support/report',{kind:'post',id,category:'nope'})).status,400);
+  assert.equal((await request('/support/report',{kind:'post',id:999999,category:'spam'})).status,404);
+  assert.equal((await request('/support/report',{kind:'comment',id:1,category:'harassment'})).status,201);
+  assert.equal((await request('/support/message',{message:'Удалите мой аккаунт'})).status,201);
+  await pause(200);
+  assert.match(logs,/\[Жалоба\] от user_id 6\nКатегория: Имена, места или данные, по которым можно узнать человека\nКомментарий: Узнаётся человек\n\nСодержимое:\nСплетня #\d+, тема: Жизнь\nПроверка сохранения/);
+  assert.match(logs,/\[Жалоба\] от user_id 6\nКатегория: Оскорбления и травля[\s\S]*Комментарий #1 к сплетне #1/);
+  assert.match(logs,/\[Поддержка\] от user_id 6\nУдалите мой аккаунт/);
+  for(let i=0;i<5;i++)assert.equal((await request('/support/message',{message:'ещё'})).status,201);
+  assert.equal((await request('/support/message',{message:'ещё'})).status,429);
   assert.equal((await request('/chats',{kind:'post',id})).status,403);
   cookie=firstCookie;
   assert.equal((await request(`/posts/${storyId}/anonymize`,{})).status,404);
@@ -83,7 +105,7 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   assert.ok(!('seats' in inbox[0]));assert.ok(!('seat' in inbox[0].messages[0]));
   assert.equal((await request(`/chats/${chatId}/messages`,{body:'Ответ'})).status,201);
   // A third session cannot discover, read, delete or write into the chat.
-  cookie='';const thirdReg=(await request('/auth/register',{email:'third@example.com'})).data;
+  cookie='';const thirdReg=(await request('/auth/register',{email:'third@example.com',accept})).data;
   await request('/auth/verify',{challenge:thirdReg.challenge,code:thirdReg.dev_code});
   assert.deepEqual((await request('/chats')).data,[]);
   assert.equal((await request(`/chats/${chatId}/messages`,{body:'Intruder'})).status,404);
@@ -166,6 +188,7 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   const db=new PGlite(dir);const cols=(await db.query("SELECT column_name FROM information_schema.columns WHERE table_name='users'")).rows.map(x=>x.column_name);for(const field of ['name','email','handle','password','color'])assert.ok(!cols.includes(field));
   assert.equal((await db.query("SELECT enumlabel FROM pg_enum JOIN pg_type ON pg_type.oid=enumtypid WHERE typname='user_role'")).rows.length,2);
   assert.deepEqual((await db.query('SELECT plan FROM subscriptions ORDER BY id')).rows.map(r=>r.plan),['month','week','week']);
+  assert.deepEqual((await db.query('SELECT terms_version FROM users WHERE user_verified AND terms_accepted_at IS NOT NULL')).rows.map(r=>r.terms_version),['2026-11-01','2026-11-01','2026-11-01']);
   assert.deepEqual((await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE '%chat%'")).rows,[]);
   await db.close();await redis.quit();redisProcess.kill();await rm(dir,{recursive:true,force:true});
  }

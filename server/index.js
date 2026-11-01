@@ -1,6 +1,7 @@
 import './env.js';
 import express from 'express';
 import {chatRouter, leaveChats} from './chats.js';
+import {supportRouter} from './support.js';
 import {createHash} from 'node:crypto';
 import {authRouter, publicUser, redis} from './auth.js';
 import path from 'node:path';
@@ -22,12 +23,13 @@ app.post('/api/premium',auth,run(async(req,res)=>{if(!redis.isReady)return res.s
 // Reading and writing platform content both require a verified account.
 app.use('/api/posts',auth);
 app.use('/api/chats',auth,chatRouter);
+app.use('/api/support',auth,supportRouter);
 app.post('/api/logout',run(async(req,res)=>{const token=req.headers.cookie?.split('; ').find(x=>x.startsWith('iom_session='))?.slice(12);if(token)await leaveChats(token);if(token)await db.query('DELETE FROM sessions WHERE token=$1',[token]);res.clearCookie('iom_session');res.json({ok:true})}));
 app.get('/api/posts',run(async(req,res)=>{const uid=req.user?.id||0;const {q='',topic='',view='',sort=''}=req.query;const result=await db.query(`SELECT p.id,p.body,p.topic,p.created_at,p.characters,p.events,(p.user_id IS NULL) AS anonymized,'Пользователь' AS name,(p.user_id=$1) AS is_own,(SELECT COUNT(*)::int FROM likes WHERE post_id=p.id) AS likes,(SELECT COUNT(*)::int FROM comments WHERE post_id=p.id) AS comments,EXISTS(SELECT 1 FROM likes WHERE post_id=p.id AND user_id=$1) AS liked,EXISTS(SELECT 1 FROM bookmarks WHERE post_id=p.id AND user_id=$1) AS saved FROM posts p WHERE p.body ILIKE $2 AND ($3='' OR p.topic=$3) AND ($4!='saved' OR EXISTS(SELECT 1 FROM bookmarks WHERE post_id=p.id AND user_id=$1)) AND ($4!='profile' OR p.user_id=$1) ORDER BY ${sort==='popular'?'likes DESC,':''} p.created_at DESC,p.id DESC LIMIT 100`,[uid,`%${String(q).slice(0,100)}%`,topic,view]);res.json(result.rows)}));
-const validBody=b=>typeof b==='string'&&b.trim().length>0&&b.length<=1000;
+const validBody=(b,max=1000)=>typeof b==='string'&&b.trim().length>0&&b.length<=max;
 app.post('/api/posts',auth,run(async(req,res)=>{
 const {body,topic,characters=[],events=[]}=req.body;
-if(!validBody(body)||!['Жизнь','Город','Культура','Работа','Отношения'].includes(topic)||!Array.isArray(characters)||characters.length>8||!characters.every(c=>typeof c==='string'&&c.trim().length>0&&c.length<=40)||!Array.isArray(events)||events.length>10||!events.every(e=>typeof e?.title==='string'&&e.title.trim().length>0&&e.title.length<=80&&validBody(e.body)))return res.status(400).json({error:'Проверьте текст, тему, персонажей (до 8) и события (до 10).'});
+if(!validBody(body,2000)||!['Жизнь','Город','Культура','Работа','Отношения'].includes(topic)||!Array.isArray(characters)||characters.length>8||!characters.every(c=>typeof c==='string'&&c.trim().length>0&&c.length<=40)||!Array.isArray(events)||events.length>10||!events.every(e=>typeof e?.title==='string'&&e.title.trim().length>0&&e.title.length<=80&&validBody(e.body)))return res.status(400).json({error:'Проверьте текст (до 2000 символов), тему, персонажей (до 8) и события (до 10).'});
 res.status(201).json((await db.query("INSERT INTO posts(user_id,body,topic,characters,events) VALUES($1,$2,$3,$4,$5) RETURNING id,body,topic,created_at,characters,events,'Пользователь' AS name,TRUE AS is_own",[req.user.id,body.trim(),topic,JSON.stringify(characters.map(c=>c.trim())),JSON.stringify(events.map(e=>({title:e.title.trim(),body:e.body.trim()})))])).rows[0]);
 }));
 app.post('/api/posts/:id/anonymize',auth,run(async(req,res)=>{
