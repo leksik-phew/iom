@@ -21,6 +21,24 @@ await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTA
 await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_version TEXT');
 await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ');
 await db.query('CREATE TABLE IF NOT EXISTS subscriptions(id SERIAL PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,plan TEXT NOT NULL,starts_at TIMESTAMPTZ NOT NULL,ends_at TIMESTAMPTZ NOT NULL,created_at TIMESTAMPTZ DEFAULT NOW())');
+// Comment threads are one level deep: parent_id always points to a top-level comment.
+await db.query('ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE');
+await db.query('CREATE TABLE IF NOT EXISTS comment_likes(user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,PRIMARY KEY(user_id,comment_id))');
+await db.query("CREATE TABLE IF NOT EXISTS communities(id SERIAL PRIMARY KEY,owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',created_at TIMESTAMPTZ DEFAULT NOW())");
+await db.query('CREATE UNIQUE INDEX IF NOT EXISTS communities_name ON communities(lower(name))');
+await db.query('CREATE TABLE IF NOT EXISTS community_members(community_id INTEGER REFERENCES communities(id) ON DELETE CASCADE,user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,muted BOOLEAN NOT NULL DEFAULT FALSE,joined_at TIMESTAMPTZ DEFAULT NOW(),PRIMARY KEY(community_id,user_id))');
+await db.query('ALTER TABLE posts ADD COLUMN IF NOT EXISTS community_id INTEGER REFERENCES communities(id) ON DELETE SET NULL');
+await db.query('CREATE TABLE IF NOT EXISTS notifications(id SERIAL PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,type TEXT NOT NULL,post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,community_id INTEGER REFERENCES communities(id) ON DELETE CASCADE,count INTEGER NOT NULL DEFAULT 1,silent BOOLEAN NOT NULL DEFAULT FALSE,read BOOLEAN NOT NULL DEFAULT FALSE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+// One unread notification per event target: repeated events increase its count instead of piling up.
+await db.query('CREATE UNIQUE INDEX IF NOT EXISTS notifications_unread ON notifications(user_id,type,COALESCE(post_id,0),COALESCE(comment_id,0)) WHERE NOT read');
+await db.query('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id,created_at DESC)');
+// Russian stemming of the story text and its events feeds the recommendations.
+await db.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS search tsvector GENERATED ALWAYS AS (to_tsvector('russian',body)||jsonb_to_tsvector('russian',events,'["string"]')) STORED`);
+await db.query('CREATE INDEX IF NOT EXISTS posts_search ON posts USING GIN(search)');
+await db.query('CREATE INDEX IF NOT EXISTS likes_post ON likes(post_id)');
+// Dislikes exist only on community posts and come from members; they lower a post in recommendations.
+await db.query('CREATE TABLE IF NOT EXISTS post_dislikes(user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,PRIMARY KEY(user_id,post_id))');
+await db.query('CREATE INDEX IF NOT EXISTS comments_post ON comments(post_id)');
 for(const column of ['name','handle','password','color']) await db.query(`ALTER TABLE users DROP COLUMN IF EXISTS ${column}`);
 await db.query('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE user_verified=FALSE)');
 if(!(await db.query('SELECT id FROM users LIMIT 1')).rows.length){

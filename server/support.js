@@ -14,11 +14,11 @@ supportRouter.use(run(async(req,res,next)=>{if(!redis.isReady)return res.status(
 async function send(res,subject,text){if(!mail&&!devMail)return res.status(503).json({error:'Отправка писем ещё не настроена'});try{if(mail)await mail.sendMail({from:process.env.SMTP_FROM,to:supportEmail,subject,text});else console.log(`Support mail (development, not sent)\n${subject}\n${text}`)}catch{return res.status(503).json({error:'Не удалось отправить. Попробуйте позже.'})}res.status(201).json({ok:true})}
 supportRouter.post('/report',run(async(req,res)=>{
 const {kind,id,category,comment=''}=req.body;
-if(!['post','comment'].includes(kind)||!Number.isSafeInteger(id)||id<1||typeof category!=='string'||!Object.hasOwn(categories,category)||typeof comment!=='string'||comment.length>1000)return res.status(400).json({error:'Выберите категорию. Комментарий — до 1000 символов.'});
-const target=(await db.query(kind==='post'?'SELECT topic,body,characters,events FROM posts WHERE id=$1':'SELECT post_id,body FROM comments WHERE id=$1',[id])).rows[0];
+if(!['post','comment','community'].includes(kind)||!Number.isSafeInteger(id)||id<1||typeof category!=='string'||!Object.hasOwn(categories,category)||typeof comment!=='string'||comment.length>1000)return res.status(400).json({error:'Выберите категорию. Комментарий — до 1000 символов.'});
+const target=(await db.query({post:'SELECT topic,body,characters,events FROM posts WHERE id=$1',comment:'SELECT post_id,body FROM comments WHERE id=$1',community:'SELECT name,description FROM communities WHERE id=$1'}[kind],[id])).rows[0];
 if(!target)return res.status(404).json({error:'Публикация не найдена'});
 // The content is copied into the letter so moderators see it even after the author deletes it.
-const content=kind==='post'?[`Сплетня #${id}, тема: ${target.topic}`,target.body,...(target.characters.length?['Персонажи: '+target.characters.join(', ')]:[]),...target.events.map((e,i)=>`Событие ${i+1}. ${e.title}\n${e.body}`)]:[`Комментарий #${id} к сплетне #${target.post_id}`,target.body];
+const content=kind==='community'?[`Сообщество #${id}: ${target.name}`,target.description]:kind==='post'?[`Сплетня #${id}, тема: ${target.topic}`,target.body,...(target.characters.length?['Персонажи: '+target.characters.join(', ')]:[]),...target.events.map((e,i)=>`Событие ${i+1}. ${e.title}\n${e.body}`)]:[`Комментарий #${id} к сплетне #${target.post_id}`,target.body];
 await send(res,`[Жалоба] от user_id ${req.user.id}`,[`Категория: ${categories[category]}`,`Комментарий: ${comment.trim()||'—'}`,'','Содержимое:',...content].join('\n'));
 }));
 supportRouter.post('/message',run(async(req,res)=>{const {message}=req.body;if(typeof message!=='string'||!message.trim()||message.length>2000)return res.status(400).json({error:'Сообщение: 1–2000 символов'});await send(res,`[Поддержка] от user_id ${req.user.id}`,message.trim())}));

@@ -188,7 +188,7 @@ test('Anonymous registration, verification, roles, privacy and ownership',async(
   const db=new PGlite(dir);const cols=(await db.query("SELECT column_name FROM information_schema.columns WHERE table_name='users'")).rows.map(x=>x.column_name);for(const field of ['name','email','handle','password','color'])assert.ok(!cols.includes(field));
   assert.equal((await db.query("SELECT enumlabel FROM pg_enum JOIN pg_type ON pg_type.oid=enumtypid WHERE typname='user_role'")).rows.length,2);
   assert.deepEqual((await db.query('SELECT plan FROM subscriptions ORDER BY id')).rows.map(r=>r.plan),['month','week','week']);
-  assert.deepEqual((await db.query('SELECT terms_version FROM users WHERE user_verified AND terms_accepted_at IS NOT NULL')).rows.map(r=>r.terms_version),['2026-11-01','2026-11-01','2026-11-01']);
+  assert.deepEqual((await db.query('SELECT terms_version FROM users WHERE user_verified AND terms_accepted_at IS NOT NULL')).rows.map(r=>r.terms_version),['2026-11-02','2026-11-02','2026-11-02']);
   assert.deepEqual((await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE '%chat%'")).rows,[]);
   await db.close();await redis.quit();redisProcess.kill();await rm(dir,{recursive:true,force:true});
  }
