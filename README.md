@@ -127,3 +127,14 @@ systemctl status iom-cert-renew.service
 ```
 
 `TRUST_PROXY=1` безопасен только при закрытом от внешних подключений backend и одном доверенном reverse proxy, как в этой конфигурации.
+
+## Сайт-визитка
+
+Статичная страница в `landing/` (React + Vite, те же зависимости). Кнопки ведут на платформу по адресу из `VITE_APP_URL`, без него — на https://213.176.67.222:3443.
+
+```sh
+npm run landing        # http://localhost:5180
+npm run landing:build  # сборка в landing/dist
+```
+
+Публикуется в GitHub Pages workflow `.github/workflows/landing.yml` при пуше в main, если менялась `landing/`. Один раз: Settings → Pages → Source: GitHub Actions; другой адрес платформы можно задать переменной репозитория `APP_URL` (Settings → Secrets and variables → Actions → Variables).

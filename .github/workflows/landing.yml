@@ -1,0 +1,44 @@
+# Builds landing/ and publishes it to GitHub Pages.
+# Settings → Pages → Source: GitHub Actions. Repository variable APP_URL points the buttons to the platform.
+name: Landing
+
+on:
+  push:
+    branches: [main]
+    paths: ['landing/**', 'package.json', 'package-lock.json', '.github/workflows/landing.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run landing:build
+        env:
+          VITE_APP_URL: ${{ vars.APP_URL }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: landing/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
