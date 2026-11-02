@@ -294,3 +294,5 @@ nav button span.short{display:none}
 .text-button.danger{color:var(--muted)}
 .text-button.danger:hover{color:var(--accent-dark)}
 @media(max-width:640px){.description-form textarea{font-size:16px}.owner-tools small{width:100%}}
+.searchbox>button{display:flex;margin-left:-44px;padding:6px;border-radius:8px;color:var(--muted)}
+.searchbox>button:hover{color:var(--ink)}

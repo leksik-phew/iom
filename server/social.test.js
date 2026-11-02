@@ -66,6 +66,16 @@ test('Communities: premium creates, anyone joins, only members post, muted membe
 test('Post likes and comments notify the author once per target, never the actor',async()=>{
  await a(`/posts/${sid}/like`,{active:true});await a(`/posts/${sid}/like`,{active:true});
  await c(`/posts/${sid}/like`,{active:true});await b(`/posts/${sid}/like`,{active:true});
+ // The profile "Likes" tab lists liked posts in plain order, even when "For you" is requested.
+ assert.deepEqual((await a('/posts?view=liked')).data.map(p=>p.id),[sid]);
+ assert.deepEqual((await a('/posts?view=liked&sort=recommended')).data.map(p=>p.id),[sid]);
+ assert.deepEqual((await d('/posts?view=liked')).data,[]);
+ // Search works inside the liked and saved tabs.
+ assert.deepEqual((await a('/posts?view=liked&q=планёрку')).data.map(p=>p.id),[sid]);
+ assert.deepEqual((await a('/posts?view=liked&q=отпуск')).data,[]);
+ await a(`/posts/${sid}/save`,{active:true});
+ assert.deepEqual((await a('/posts?view=saved&q=опоздал')).data.map(p=>p.id),[sid]);
+ assert.deepEqual((await a('/posts?view=saved&q=отпуск')).data,[]);
  const like=(await notes(b)).find(n=>n.type==='post_like');assert.equal(like.count,2);assert.equal(like.post_excerpt,'Коллега опять опоздал на планёрку');
  const top=await a(`/posts/${sid}/comments`,{body:'Это уже традиция'});assert.equal(top.status,201);
  const reply=await b(`/posts/${sid}/comments`,{body:'Каждый понедельник',reply_to:top.data.id});assert.equal(reply.status,201);
