@@ -50,3 +50,17 @@ test('Unverified accounts cannot get premium',async()=>{
  assert.equal((await stored(id)).role,'default');
  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM subscriptions WHERE user_id=$1',[id])).rows[0].n,0);
 });
+test('Expired premium drops members and requests of premium-only communities, the owner stays',async()=>{
+ const [owner,member,lapsed,asking]=[await newUser(),await newUser(),await newUser(),await newUser()];
+ for(const id of [owner,member,lapsed,asking])await activatePremium(id,'month');
+ const club=(await db.query("INSERT INTO communities(owner_id,name,premium_only) VALUES($1,'Премиальный клуб',TRUE) RETURNING id",[owner])).rows[0].id;
+ const open=(await db.query("INSERT INTO communities(owner_id,name) VALUES($1,'Открытый клуб') RETURNING id",[owner])).rows[0].id;
+ for(const id of [owner,member,lapsed])await db.query('INSERT INTO community_members(community_id,user_id) VALUES($1,$2),($3,$2)',[club,id,open]);
+ await db.query('INSERT INTO community_requests(community_id,user_id) VALUES($1,$2)',[club,asking]);
+ await db.query("UPDATE users SET premium_until=NOW()-INTERVAL '1 second' WHERE id IN ($1,$2,$3)",[owner,lapsed,asking]);
+ await expirePremium();
+ const members=async c=>(await db.query('SELECT user_id FROM community_members WHERE community_id=$1 ORDER BY user_id',[c])).rows.map(r=>r.user_id);
+ assert.deepEqual(await members(club),[owner,member]);
+ assert.deepEqual(await members(open),[owner,member,lapsed]);
+ assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM community_requests WHERE community_id=$1',[club])).rows[0].n,0);
+});

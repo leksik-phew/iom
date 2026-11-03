@@ -10,5 +10,8 @@ u AS (UPDATE users SET role='premium',premium_until=cur.starts_at+$2::interval F
 s AS (INSERT INTO subscriptions(user_id,plan,starts_at,ends_at) SELECT id,$3,starts_at,premium_until FROM u)
 SELECT id,role,user_verified,premium_until FROM u`,[userId,plans[plan].interval,plan])).rows[0]}
 // Premium without an end date (the former free button) is also revoked.
-export async function expirePremium(){return (await db.query("UPDATE users SET role='default' WHERE role='premium' AND (premium_until IS NULL OR premium_until<=NOW()) RETURNING id")).rows.length}
+export async function expirePremium(){const n=(await db.query("UPDATE users SET role='default' WHERE role='premium' AND (premium_until IS NULL OR premium_until<=NOW()) RETURNING id")).rows.length;await dropLapsed();return n}
+export const isPremium=user=>`EXISTS(SELECT 1 FROM users WHERE id=${user} AND role='premium' AND premium_until>NOW())`;
+// Premium-only communities drop members and requests whose premium has ended; they must join again. Owners stay.
+export async function dropLapsed(community=null){await db.query(`DELETE FROM community_members m USING communities c WHERE c.id=m.community_id AND c.premium_only AND ($1::int IS NULL OR c.id=$1) AND m.user_id IS DISTINCT FROM c.owner_id AND NOT ${isPremium('m.user_id')}`,[community]);await db.query(`DELETE FROM community_requests r USING communities c WHERE c.id=r.community_id AND c.premium_only AND ($1::int IS NULL OR c.id=$1) AND NOT ${isPremium('r.user_id')}`,[community])}
 export async function startPremiumExpiry(ms=60000){await expirePremium();const timer=setInterval(()=>expirePremium().catch(()=>{}),ms);timer.unref()}

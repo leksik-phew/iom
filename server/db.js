@@ -30,7 +30,9 @@ await db.query('CREATE TABLE IF NOT EXISTS community_members(community_id INTEGE
 await db.query('ALTER TABLE posts ADD COLUMN IF NOT EXISTS community_id INTEGER REFERENCES communities(id) ON DELETE SET NULL');
 await db.query('CREATE TABLE IF NOT EXISTS notifications(id SERIAL PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,type TEXT NOT NULL,post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,community_id INTEGER REFERENCES communities(id) ON DELETE CASCADE,count INTEGER NOT NULL DEFAULT 1,silent BOOLEAN NOT NULL DEFAULT FALSE,read BOOLEAN NOT NULL DEFAULT FALSE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
 // One unread notification per event target: repeated events increase its count instead of piling up.
-await db.query('CREATE UNIQUE INDEX IF NOT EXISTS notifications_unread ON notifications(user_id,type,COALESCE(post_id,0),COALESCE(comment_id,0)) WHERE NOT read');
+// Community events (join requests and decisions) have no post, so the community is part of the target.
+await db.query('DROP INDEX IF EXISTS notifications_unread');
+await db.query('CREATE UNIQUE INDEX IF NOT EXISTS notifications_unread_target ON notifications(user_id,type,COALESCE(post_id,0),COALESCE(comment_id,0),COALESCE(community_id,0)) WHERE NOT read');
 await db.query('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id,created_at DESC)');
 // Russian stemming of the story text and its events feeds the recommendations.
 await db.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS search tsvector GENERATED ALWAYS AS (to_tsvector('russian',body)||jsonb_to_tsvector('russian',events,'["string"]')) STORED`);
@@ -39,6 +41,15 @@ await db.query('CREATE INDEX IF NOT EXISTS likes_post ON likes(post_id)');
 // Dislikes exist only on community posts and come from members; they lower a post in recommendations.
 await db.query('CREATE TABLE IF NOT EXISTS post_dislikes(user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,PRIMARY KEY(user_id,post_id))');
 await db.query('CREATE INDEX IF NOT EXISTS comments_post ON comments(post_id)');
+// Access: public (anyone joins), request (the owner approves), private (approval or invite link; posts stay inside while it exists).
+await db.query("ALTER TABLE communities ADD COLUMN IF NOT EXISTS access TEXT NOT NULL DEFAULT 'public'");
+await db.query('ALTER TABLE communities ADD COLUMN IF NOT EXISTS premium_only BOOLEAN NOT NULL DEFAULT FALSE');
+await db.query('ALTER TABLE communities ADD COLUMN IF NOT EXISTS min_posts INTEGER NOT NULL DEFAULT 0');
+await db.query('ALTER TABLE communities ADD COLUMN IF NOT EXISTS invite_code TEXT UNIQUE');
+await db.query('CREATE TABLE IF NOT EXISTS community_requests(id SERIAL PRIMARY KEY,community_id INTEGER NOT NULL REFERENCES communities(id) ON DELETE CASCADE,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(community_id,user_id))');
+// Premium-only stories and comments are hidden from default accounts.
+await db.query('ALTER TABLE posts ADD COLUMN IF NOT EXISTS premium_only BOOLEAN NOT NULL DEFAULT FALSE');
+await db.query('ALTER TABLE comments ADD COLUMN IF NOT EXISTS premium_only BOOLEAN NOT NULL DEFAULT FALSE');
 for(const column of ['name','handle','password','color']) await db.query(`ALTER TABLE users DROP COLUMN IF EXISTS ${column}`);
 await db.query('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE user_verified=FALSE)');
 if(!(await db.query('SELECT id FROM users LIMIT 1')).rows.length){

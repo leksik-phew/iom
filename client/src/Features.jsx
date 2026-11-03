@@ -3,7 +3,7 @@ import {Sun,Moon} from 'lucide-react';
 export function Mark(){return <svg className="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5v19M2.5 12h19M5.3 5.3l13.4 13.4M18.7 5.3 5.3 18.7"/></svg>}
 // index.html applies the theme before the first paint; only an explicit switch is remembered.
 export function ThemeToggle(){const[theme,setTheme]=useState(document.documentElement.dataset.theme||'light');useEffect(()=>{document.documentElement.dataset.theme=theme;document.querySelector('meta[name=theme-color]')?.setAttribute('content',theme==='dark'?'#1B1612':'#FDF8EB')},[theme]);const next=theme==='dark'?'light':'dark';return <button className="bell theme-toggle" title={theme==='dark'?'Светлая тема':'Тёмная тема'} aria-label={theme==='dark'?'Включить светлую тему':'Включить тёмную тему'} onClick={()=>{setTheme(next);try{localStorage.setItem('iom:theme',next)}catch{}}}>{theme==='dark'?<Sun size={19}/>:<Moon size={19}/>}</button>}
-const news=['Все авторы подписаны как «Пользователь»','Почта удаляется сразу после подтверждения','Личные чаты не сохраняются','Никаких реальных имён и личных данных','Сплетни до 2000 символов','Сообщества создаются с премом'];
+const news=['Все авторы подписаны как «Пользователь»','Почта удаляется сразу после подтверждения','Личные чаты не сохраняются','Никаких реальных имён и личных данных','Закрытые сообщества — только по приглашению','Сообщества создаются с премом'];
 // Decorative news ticker; the line is doubled so the loop has no gap.
 export function Ticker(){const line=news.map(t=>`★ ${t} `).join('');return <div className="ticker" aria-hidden="true"><div><span>{line}</span><span>{line}</span></div></div>}
 // 88×31 buttons, the way sites of the 2000s signed their footers.

@@ -2,6 +2,7 @@ import express from 'express';
 import {randomBytes,createHash} from 'node:crypto';
 import {redis} from './auth.js';
 import {db} from './db.js';
+import {visibleAuthor} from './posts.js';
 export const chatRouter=express.Router();
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const prefix='iom:chat:';
@@ -26,7 +27,8 @@ chatRouter.use((req,res,next)=>redis.isReady?next():res.status(503).json({error:
 chatRouter.post('/',run(async(req,res)=>{
 if(req.user.role!=='premium')return res.status(403).json({error:'Начинать личный чат можно с премом'});
 const {kind,id}=req.body;if(!['post','comment'].includes(kind)||!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Выберите публикацию или комментарий'});
-const target=(await db.query(`SELECT user_id FROM ${kind==='post'?'posts':'comments'} WHERE id=$1`,[id])).rows[0];
+// Only content the sender can see opens a chat: hidden stories and comments behave as missing.
+const target=await visibleAuthor(req.user.id,kind,id);
 if(!target?.user_id||target.user_id===req.user.id)return res.status(404).json({error:'Чат недоступен'});
 const own=(await db.query('SELECT expires FROM sessions WHERE token=$1 AND expires>NOW()',[req.sessionToken])).rows[0];if(!own)return res.sendStatus(401);
 await mark(req.sessionToken,own.expires);
