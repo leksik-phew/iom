@@ -5,7 +5,7 @@ import '@fontsource/pixelify-sans/400.css';import '@fontsource/pixelify-sans/700
 import './style.css';
 
 // Where the platform lives; set VITE_APP_URL for the Pages build.
-const APP_URL=(import.meta.env.VITE_APP_URL||'https://213.176.67.222:3443').replace(/\/$/,'');
+const APP_URL=(import.meta.env.VITE_APP_URL||'https://45.9.117.101:3443').replace(/\/$/,'');
 const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const whispers=['ты слышал?','только никому','Персонаж А опять…','между нами','а она в курсе?','я тебе ничего не говорил','это точно он','все уже знают','не пересказывай','скрин есть','по секрету','угадай кто','Коллега Б…','а я так и знал','№1337','не я это написал','удали потом','кто-то из наших'];
